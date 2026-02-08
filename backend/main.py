@@ -5,6 +5,7 @@ Syncs with Google Sheets and provides real-time statistics
 
 import os
 import json
+import base64
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from collections import Counter
@@ -18,6 +19,18 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 # Load environment variables
 load_dotenv()
+
+# Handle service account credentials
+SERVICE_ACCOUNT_FILE = "service_account.json"
+
+# Check if service account is provided as base64 in environment (for Render/production)
+if os.getenv('SERVICE_ACCOUNT_JSON'):
+    try:
+        service_account_json = base64.b64decode(os.getenv('SERVICE_ACCOUNT_JSON')).decode()
+        with open(SERVICE_ACCOUNT_FILE, 'w') as f:
+            f.write(service_account_json)
+    except Exception as e:
+        print(f"Warning: Could not decode SERVICE_ACCOUNT_JSON from environment: {e}")
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -43,7 +56,6 @@ SCOPE = [
 ]
 
 SPREADSHEET_ID = "1Iay4dQmuLycikpjtHO-ATpc0cqkMSxiP_UBlAHX5-ns"
-SERVICE_ACCOUNT_FILE = "service_account.json"
 
 # Official 47 Counties of Kenya (properly capitalized)
 OFFICIAL_COUNTIES = [
