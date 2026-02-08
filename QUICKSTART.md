@@ -52,6 +52,9 @@ pip install -r requirements.txt
 # Copy environment file
 cp .env.example .env
 
+# Install dependencies
+pip install -r requirements.txt
+
 # Go back to root
 cd ..
 ```
@@ -108,9 +111,11 @@ This starts both backend and frontend. The dashboard opens at:
 **Terminal 1 - Backend:**
 ```bash
 cd backend
-source venv/bin/activate  # or: .\venv\Scripts\activate
+source venv/bin/activate  # or: .\venv\Scripts\activate (Windows)
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+**Note:** Do NOT use `uvicorn app.main:app` - the correct command is `uvicorn main:app`
 
 **Terminal 2 - Frontend:**
 ```bash

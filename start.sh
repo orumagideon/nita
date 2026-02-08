@@ -35,9 +35,10 @@ if [ ! -f "service_account.json" ]; then
     echo "Please copy your credentials to backend/service_account.json"
 fi
 
-uvicorn main:app --reload --host 0.0.0.0 --port 8000 &
+uvicorn main:app --reload --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
 BACKEND_PID=$!
 echo "✅ Backend started (PID: $BACKEND_PID)"
+echo "   Backend logs: backend.log"
 echo ""
 
 cd ..

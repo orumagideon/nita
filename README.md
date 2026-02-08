@@ -105,9 +105,11 @@ pip install -r requirements.txt
 # Create .env file (optional, for future configuration)
 cp .env.example .env
 
-# Run the FastAPI server
+# Run the FastAPI server (CORRECT COMMAND - use 'main:app' not 'app.main:app')
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+⚠️ **Important:** Use `uvicorn main:app` - NOT `uvicorn app.main:app`. The file is `main.py`, not in an `app/` folder.
 
 The API will be available at: http://localhost:8000
 
