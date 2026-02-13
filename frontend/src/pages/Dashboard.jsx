@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from '../components/Header';
 import Sidebar from '../components/Sidebar';
+import Footer from '../components/Footer';
 import { KPIRow } from '../components/KPICard';
 import GenderChart from '../components/GenderChart';
 import EducationChart from '../components/EducationChart';
@@ -38,7 +39,7 @@ export const Dashboard = () => {
   }, []);
 
   // Fetch statistics
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -51,12 +52,12 @@ export const Dashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedCounty, selectedLevel]);
 
   // Fetch stats on component mount and when filters change
   useEffect(() => {
     fetchStats();
-  }, [selectedCounty, selectedLevel]);
+  }, [fetchStats]);
 
   const handleCountyChange = (county) => {
     setSelectedCounty(county);
@@ -67,79 +68,84 @@ export const Dashboard = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100">
-      {/* Sidebar */}
-      <Sidebar
-        counties={counties}
-        levels={levels}
-        onCountyChange={handleCountyChange}
-        onLevelChange={handleLevelChange}
-        selectedCounty={selectedCounty}
-        selectedLevel={selectedLevel}
+    <div className="flex flex-col h-screen nita-dashboard-bg">
+      {/* Header */}
+      <Header
+        loading={loading}
+        error={error}
+        onRefresh={fetchStats}
+        lastUpdated={lastUpdated}
       />
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <Header
-          loading={loading}
-          error={error}
-          onRefresh={fetchStats}
-          lastUpdated={lastUpdated}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        <Sidebar
+          counties={counties}
+          levels={levels}
+          onCountyChange={handleCountyChange}
+          onLevelChange={handleLevelChange}
+          selectedCounty={selectedCounty}
+          selectedLevel={selectedLevel}
         />
 
-        {/* Content */}
-        <div className="flex-1 overflow-auto">
-          <div className="p-6 max-w-7xl mx-auto">
-            {/* KPI Row */}
-            <KPIRow stats={stats} />
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Content */}
+          <div className="flex-1 overflow-auto">
+            <div className="p-6 max-w-7xl mx-auto">
+              {/* KPI Row */}
+              <KPIRow stats={stats} />
 
-            {/* Charts Grid */}
-            {stats && !loading && !error ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Row 1 */}
-                <div>
-                  <GenderChart data={stats.gender_ratio} />
-                </div>
-                <div>
-                  <EducationChart data={stats.education_breakdown} />
-                </div>
+              {/* Charts Grid */}
+              {stats && !loading && !error ? (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Row 1 */}
+                  <div className="bg-gradient-to-br from-white to-blue-50 backdrop-blur-md rounded-xl shadow-lg hover:shadow-2xl p-4 transition-all duration-300 border border-blue-100/30">
+                    <GenderChart data={stats.gender_ratio} />
+                  </div>
+                  <div className="bg-gradient-to-br from-white to-blue-50 backdrop-blur-md rounded-xl shadow-lg hover:shadow-2xl p-4 transition-all duration-300 border border-blue-100/30">
+                    <EducationChart data={stats.education_breakdown} />
+                  </div>
 
-                {/* Row 2 */}
-                <div className="lg:col-span-2">
-                  <CoursesChart data={stats.top_courses} />
-                </div>
+                  {/* Row 2 */}
+                  <div className="lg:col-span-2 bg-gradient-to-br from-white to-blue-50 backdrop-blur-md rounded-xl shadow-lg hover:shadow-2xl p-4 transition-all duration-300 border border-blue-100/30">
+                    <CoursesChart data={stats.top_courses} />
+                  </div>
 
-                {/* Row 3 */}
-                <div>
-                  <GeographicChart data={stats.geographic_distribution} />
-                </div>
+                  {/* Row 3 */}
+                  <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-md p-4 hover:shadow-lg transition-shadow">
+                    <GeographicChart data={stats.geographic_distribution} />
+                  </div>
 
-                {/* Row 4 */}
-                <div className="lg:col-span-2">
-                  <CompaniesChart data={stats.preferred_companies} />
+                  {/* Row 4 */}
+                  <div className="lg:col-span-2 bg-gradient-to-br from-white to-blue-50 backdrop-blur-md rounded-xl shadow-lg hover:shadow-2xl p-4 transition-all duration-300 border border-blue-100/30">
+                    <CompaniesChart data={stats.preferred_companies} />
+                  </div>
                 </div>
-              </div>
-            ) : loading ? (
-              <div className="flex items-center justify-center h-96">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-                  <p className="text-gray-600 mt-4">Loading dashboard data...</p>
+              ) : loading ? (
+                <div className="flex items-center justify-center h-96">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                    <p className="text-gray-600 mt-4">Loading dashboard data...</p>
+                  </div>
                 </div>
-              </div>
-            ) : error ? (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-                <p className="text-red-800 font-medium">Error loading data</p>
-                <p className="text-red-600 text-sm mt-2">{error}</p>
-                <button
-                  onClick={fetchStats}
-                  className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                >
-                  Retry
-                </button>
-              </div>
-            ) : null}
+              ) : error ? (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+                  <p className="text-red-800 font-medium">Error loading data</p>
+                  <p className="text-red-600 text-sm mt-2">{error}</p>
+                  <button
+                    onClick={fetchStats}
+                    className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
+
+          {/* Footer */}
+          <Footer />
         </div>
       </div>
     </div>

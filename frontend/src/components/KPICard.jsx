@@ -1,12 +1,12 @@
 import React from 'react';
-import { AlertCircle, CheckCircle, TrendingUp } from 'lucide-react';
+import { CheckCircle, TrendingUp } from 'lucide-react';
 
 export const KPICard = ({ title, value, subtitle, icon: Icon, trend, color = 'blue' }) => {
   const colorClasses = {
-    blue: 'bg-blue-50 border-blue-200',
-    green: 'bg-green-50 border-green-200',
-    purple: 'bg-purple-50 border-purple-200',
-    orange: 'bg-orange-50 border-orange-200',
+    blue: 'bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200',
+    green: 'bg-gradient-to-br from-green-50 to-green-100 border-green-200',
+    purple: 'bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200',
+    orange: 'bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200',
   };
 
   const iconColorClasses = {
@@ -17,7 +17,7 @@ export const KPICard = ({ title, value, subtitle, icon: Icon, trend, color = 'bl
   };
 
   return (
-    <div className={`${colorClasses[color]} border rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow`}>
+    <div className={`${colorClasses[color]} border rounded-xl p-4 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 backdrop-blur-sm`}>
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <p className="text-gray-600 text-sm font-medium">{title}</p>

@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
-import { ChevronDown, X } from 'lucide-react';
+import { ChevronDown, X, Search } from 'lucide-react';
+import nitaLogo from '../assets/images/NITA-Logo.png';
 
 export const Sidebar = ({ counties, levels, onCountyChange, onLevelChange, selectedCounty, selectedLevel }) => {
   const [isOpen, setIsOpen] = useState(true);
+  const [countrySearch, setCountrySearch] = useState('');
   const [expandedSections, setExpandedSections] = useState({
     county: true,
     level: true,
   });
+
+  const filteredCounties = counties.filter(county =>
+    county.toLowerCase().includes(countrySearch.toLowerCase())
+  );
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({
@@ -32,11 +38,20 @@ export const Sidebar = ({ counties, levels, onCountyChange, onLevelChange, selec
 
       {/* Sidebar */}
       <aside
-        className={`fixed lg:relative left-0 top-0 h-screen lg:h-auto w-64 bg-gray-50 border-r border-gray-200 transform transition-transform duration-300 ease-in-out z-30 ${
+        className={`fixed lg:relative left-0 top-0 h-screen lg:h-auto w-64 bg-gradient-to-b from-white to-blue-50 border-r-2 border-blue-100 transform transition-transform duration-300 ease-in-out z-30 ${
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        } overflow-y-auto`}
+        } overflow-y-auto shadow-lg`}
       >
-        <div className="p-6">
+        <div className="p-8">
+          {/* NITA Logo Section */}
+          <div className="mb-6 flex items-center justify-center">
+            <img 
+              src={nitaLogo} 
+              alt="NITA Logo" 
+              className="h-12 object-contain"
+            />
+          </div>
+
           <h2 className="text-xl font-bold text-gray-900 mb-6">Filters</h2>
 
           {/* Clear Filters */}
@@ -64,7 +79,19 @@ export const Sidebar = ({ counties, levels, onCountyChange, onLevelChange, selec
             </button>
 
             {expandedSections.county && (
-              <div className="mt-2 space-y-2">
+              <div className="mt-3 space-y-2">
+                {/* Search Input */}
+                <div className="relative mb-3">
+                  <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search counties..."
+                    value={countrySearch}
+                    onChange={(e) => setCountrySearch(e.target.value)}
+                    className="w-full pl-10 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
+                  />
+                </div>
+
                 <button
                   onClick={() => onCountyChange(null)}
                   className={`block w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
@@ -75,7 +102,7 @@ export const Sidebar = ({ counties, levels, onCountyChange, onLevelChange, selec
                 >
                   All Counties
                 </button>
-                {counties && counties.map(county => (
+                {filteredCounties && filteredCounties.map(county => (
                   <button
                     key={county}
                     onClick={() => onCountyChange(county)}

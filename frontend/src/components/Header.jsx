@@ -1,15 +1,21 @@
 import React from 'react';
 import { RefreshCw, AlertCircle } from 'lucide-react';
+import nitaLogo from '../assets/images/NITA-Logo.png';
 
 export const Header = ({ loading, error, onRefresh, lastUpdated }) => {
   return (
-    <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
-      <div className="px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex-1">
+    <header className="bg-gradient-to-r from-white via-blue-50 to-indigo-100 border-b-2 border-blue-200 shadow-md sticky top-0 z-10">
+      <div className="px-6 py-3">
+        <div className="flex items-center justify-between mb-4">
+          <img src={nitaLogo} alt="NITA Logo" className="h-14 object-contain" />
+          <div className="flex-1 flex flex-col items-center">
             <h1 className="text-3xl font-bold text-gray-900">NITA Dashboard</h1>
             <p className="text-sm text-gray-500 mt-1">Real-time applicant analytics and insights</p>
           </div>
+          <div className="w-14"></div>
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="flex-1"></div>
           <div className="flex items-center gap-4">
             {error && (
               <div className="flex items-center gap-2 text-red-600">
