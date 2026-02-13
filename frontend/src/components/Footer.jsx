@@ -1,10 +1,33 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 export const Footer = () => {
   const currentYear = new Date().getFullYear();
+  const [isNearBottom, setIsNearBottom] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollPosition = window.innerHeight + window.scrollY;
+      const triggerPoint = document.body.offsetHeight - 140;
+      setIsNearBottom(scrollPosition >= triggerPoint);
+    };
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const isVisible = isNearBottom && isHovered;
 
   return (
-    <footer className="w-full bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 text-white py-5 mt-auto shadow-2xl">
+    <footer
+      className={`fixed bottom-0 left-0 w-full bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 text-white py-5 shadow-2xl transition-all duration-300 ease-out ${
+        isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
+      } ${isNearBottom ? 'pointer-events-auto' : 'pointer-events-none'}`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      aria-hidden={!isVisible}
+    >
       <div className="w-full px-6">
         {/* Footer Content in Compact Grid */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-3 text-sm text-blue-100">
