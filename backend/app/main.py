@@ -6,6 +6,9 @@ Syncs with Google Sheets and provides real-time statistics
 import os
 import json
 import base64
+import re
+import unicodedata
+from difflib import get_close_matches
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from collections import Counter
@@ -77,6 +80,158 @@ EDUCATION_LEVELS = {
     "MASTERS": ["masters", "master", "msc", "ma", "mba", "level 8", "level8", "8", "postgraduate"],
     "PHD": ["phd", "doctorate", "doctoral", "level 9", "level9", "9"]
 }
+
+
+def get_quarter(date_str: str) -> str:
+    """
+    Get quarter from date string
+    Q1: July-September (07-09)
+    Q2: October-December (10-12)
+    Q3: January-March (01-03)
+    Q4: April-June (04-06)
+    
+    Supports various date formats: YYYY-MM-DD, MM/DD/YYYY, etc.
+    Returns "Unknown" if date cannot be parsed
+    """
+    if not date_str or not isinstance(date_str, str):
+        return "Unknown"
+    
+    try:
+        # Normalize and handle noisy values like "F", "N/A", etc.
+        raw_value = date_str.strip()
+        cleaned_value = raw_value.replace("  ", " ").strip()
+        if not cleaned_value or cleaned_value.upper() in {"F", "N/A", "NA", "NULL", "NONE", "-"}:
+            return "Unknown"
+
+        month = None
+
+        # Parse common datetime/date formats from Google Forms / Sheets
+        supported_formats = [
+            '%m/%d/%Y %H:%M:%S',
+            '%m/%d/%Y %H:%M',
+            '%m/%d/%Y %I:%M:%S %p',
+            '%m/%d/%Y',
+            '%Y-%m-%d %H:%M:%S',
+            '%Y-%m-%d',
+            '%d/%m/%Y %H:%M:%S',
+            '%d/%m/%Y',
+            '%m-%d-%Y %H:%M:%S',
+            '%m-%d-%Y',
+            '%Y/%m/%d %H:%M:%S',
+            '%Y/%m/%d',
+        ]
+
+        for fmt in supported_formats:
+            try:
+                month = datetime.strptime(cleaned_value, fmt).month
+                break
+            except ValueError:
+                continue
+
+        # Fallback: parse numeric month from first date-like token
+        if month is None:
+            first_token = cleaned_value.split()[0]
+            if '/' in first_token:
+                parts = first_token.split('/')
+                if len(parts) >= 3 and parts[0].isdigit() and 1 <= int(parts[0]) <= 12:
+                    month = int(parts[0])
+            elif '-' in first_token:
+                parts = first_token.split('-')
+                if len(parts) >= 3:
+                    if parts[0].isdigit() and 1 <= int(parts[0]) <= 12:
+                        month = int(parts[0])
+                    elif parts[1].isdigit() and 1 <= int(parts[1]) <= 12:
+                        month = int(parts[1])
+
+        if month is None:
+            return "Unknown"
+        
+        # Categorize by quarter
+        if month in [7, 8, 9]:
+            return "Q1 (Jul-Sep)"
+        elif month in [10, 11, 12]:
+            return "Q2 (Oct-Dec)"
+        elif month in [1, 2, 3]:
+            return "Q3 (Jan-Mar)"
+        elif month in [4, 5, 6]:
+            return "Q4 (Apr-Jun)"
+        else:
+            return "Unknown"
+    except Exception:
+        return "Unknown"
+
+
+def parse_application_date(date_str: str) -> Dict[str, Any]:
+    """
+    Parse application date and return both year and quarter.
+    Returns: {"year": int | None, "quarter": str}
+    """
+    if not date_str or not isinstance(date_str, str):
+        return {"year": None, "quarter": "Unknown"}
+
+    try:
+        raw_value = date_str.strip()
+        cleaned_value = raw_value.replace("  ", " ").strip()
+        if not cleaned_value or cleaned_value.upper() in {"F", "N/A", "NA", "NULL", "NONE", "-"}:
+            return {"year": None, "quarter": "Unknown"}
+
+        parsed_date = None
+        supported_formats = [
+            '%m/%d/%Y %H:%M:%S',
+            '%m/%d/%Y %H:%M',
+            '%m/%d/%Y %I:%M:%S %p',
+            '%m/%d/%Y',
+            '%Y-%m-%d %H:%M:%S',
+            '%Y-%m-%d',
+            '%d/%m/%Y %H:%M:%S',
+            '%d/%m/%Y',
+            '%m-%d-%Y %H:%M:%S',
+            '%m-%d-%Y',
+            '%Y/%m/%d %H:%M:%S',
+            '%Y/%m/%d',
+        ]
+
+        for fmt in supported_formats:
+            try:
+                parsed_date = datetime.strptime(cleaned_value, fmt)
+                break
+            except ValueError:
+                continue
+
+        if parsed_date is None:
+            first_token = cleaned_value.split()[0]
+            if '/' in first_token:
+                parts = first_token.split('/')
+                if len(parts) >= 3 and parts[0].isdigit() and parts[2].isdigit():
+                    month = int(parts[0])
+                    year = int(parts[2])
+                    if 1 <= month <= 12 and 1900 <= year <= 2100:
+                        quarter = get_quarter(first_token)
+                        return {"year": year, "quarter": quarter}
+            elif '-' in first_token:
+                parts = first_token.split('-')
+                if len(parts) >= 3:
+                    if len(parts[0]) == 4 and parts[0].isdigit() and parts[1].isdigit():
+                        year = int(parts[0])
+                        month = int(parts[1])
+                    elif parts[2].isdigit() and parts[0].isdigit():
+                        year = int(parts[2])
+                        month = int(parts[0])
+                    else:
+                        return {"year": None, "quarter": "Unknown"}
+
+                    if 1 <= month <= 12 and 1900 <= year <= 2100:
+                        quarter = get_quarter(first_token)
+                        return {"year": year, "quarter": quarter}
+
+            return {"year": None, "quarter": "Unknown"}
+
+        return {
+            "year": parsed_date.year,
+            "quarter": get_quarter(cleaned_value),
+        }
+    except Exception:
+        return {"year": None, "quarter": "Unknown"}
 
 
 def normalize_county(county_input: str) -> str:
@@ -153,22 +308,94 @@ def normalize_education_level(level_input: str) -> str:
     """
     if not level_input or not isinstance(level_input, str):
         return ""
-    
-    cleaned = level_input.strip().lower()
-    
-    # Remove common words
-    cleaned = cleaned.replace("level", "").replace("of training", "").strip()
-    
-    # Check against standard categories
-    for standard_level, variations in EDUCATION_LEVELS.items():
-        if cleaned in variations or any(cleaned.startswith(var) for var in variations):
-            return standard_level
-        # Check if the standard level name is in the input
-        if standard_level.lower() in cleaned:
-            return standard_level
-    
-    # Return cleaned uppercase version if no match
-    return cleaned.upper() if cleaned else ""
+
+    # Early reject obvious invalid values
+    raw_value = level_input.strip()
+    if not raw_value:
+        return ""
+    if "@" in raw_value:
+        return ""
+
+    # Normalize unicode and clean symbols (handles styled text like 𝑫𝑰𝑷𝑳𝑶𝑴𝑨)
+    normalized = unicodedata.normalize("NFKD", raw_value)
+    normalized = normalized.encode("ascii", "ignore").decode("ascii")
+    cleaned = normalized.upper().strip()
+    cleaned = cleaned.replace("LEVEL", " ").replace("OF TRAINING", " ")
+    cleaned = re.sub(r"[^A-Z0-9\s]", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    if not cleaned:
+        return ""
+
+    # Remove known noisy placeholders
+    invalid_values = {
+        "N A", "NA", "NIL", "NONE", "NULL", "UNKNOWN", "Z", "B", "KI", "FOUR", "THIRD YEAR"
+    }
+    if cleaned in invalid_values:
+        return ""
+
+    # Direct category names
+    if cleaned in EDUCATION_LEVELS.keys():
+        return cleaned
+
+    # Level number mapping (Kenyan framework)
+    level_match = re.search(r"\bL?\s*([4-9])\b", cleaned)
+    if level_match:
+        level_number = level_match.group(1)
+        if level_number == "4":
+            return "CERTIFICATE"
+        if level_number in {"5", "6"}:
+            return "DIPLOMA"
+        if level_number == "7":
+            return "DEGREE"
+        if level_number == "8":
+            return "MASTERS"
+        if level_number == "9":
+            return "PHD"
+
+    # Common keyword-based mapping
+    if any(token in cleaned for token in ["CERT", "ARTISAN", "CRAFIT", "CRAFT", "GRADE", "TRADE TEST", "GRADE THREE", "GRADE 3", "GRADE2", "GRADE 2", "GRADE1", "GRADE 1"]):
+        return "CERTIFICATE"
+
+    if any(token in cleaned for token in ["DIP", "DIPL", "DEPLOMA", "DOPLOMA", "DEPL"]):
+        return "DIPLOMA"
+
+    if any(token in cleaned for token in ["DEG", "BACHELOR", "UNDERGRAD", "BTECH", "BSC", "BA ", "B A "]):
+        return "DEGREE"
+
+    if any(token in cleaned for token in ["MAST", "POSTGRAD", "MSC", "MBA", "M A", "MSC"]):
+        return "MASTERS"
+
+    if any(token in cleaned for token in ["PHD", "DOCTOR", "DOCTORATE"]):
+        return "PHD"
+
+    # Fuzzy correction for common misspellings (certificate/diploma/degree/etc.)
+    words = cleaned.split()
+    candidate_tokens = words + [cleaned]
+    vocabulary = [
+        "CERTIFICATE", "DIPLOMA", "DEGREE", "MASTERS", "PHD",
+        "CERT", "DIP", "DEG", "ARTISAN"
+    ]
+
+    for token in candidate_tokens:
+        match = get_close_matches(token, vocabulary, n=1, cutoff=0.75)
+        if not match:
+            continue
+
+        matched = match[0]
+        if matched in {"CERTIFICATE", "CERT", "ARTISAN"}:
+            return "CERTIFICATE"
+        if matched in {"DIPLOMA", "DIP"}:
+            return "DIPLOMA"
+        if matched in {"DEGREE", "DEG"}:
+            return "DEGREE"
+        if matched == "MASTERS":
+            return "MASTERS"
+        if matched == "PHD":
+            return "PHD"
+
+    # If value is not confidently classifiable, drop it to keep charts clean
+    return ""
 
 
 def normalize_company_name(company_input: str) -> str:
@@ -230,6 +457,64 @@ def normalize_company_name(company_input: str) -> str:
     # Check for partial matches
     for abbr, full_name in company_mappings.items():
         if abbr in cleaned_upper or cleaned_upper in abbr:
+            return full_name
+    
+    # Title case for professional appearance
+    return cleaned.title() if cleaned else ""
+
+
+def normalize_school_name(school_input: str) -> str:
+    """
+    Normalize school names for consistency
+    """
+    if not school_input or not isinstance(school_input, str):
+        return ""
+    
+    # Clean the input
+    cleaned = school_input.strip()
+    
+    # Convert to uppercase for consistency
+    cleaned_upper = cleaned.upper()
+    
+    # Common school abbreviations and variations
+    school_mappings = {
+        "UON": "UNIVERSITY OF NAIROBI",
+        "U.O.N": "UNIVERSITY OF NAIROBI",
+        "NAIROBI UNIVERSITY": "UNIVERSITY OF NAIROBI",
+        "KU": "KENYATTA UNIVERSITY",
+        "K.U": "KENYATTA UNIVERSITY",
+        "MOI UNIVERSITY": "MOI UNIVERSITY",
+        "JKUAT": "JOMO KENYATTA UNIVERSITY OF AGRICULTURE AND TECHNOLOGY",
+        "J.K.U.A.T": "JOMO KENYATTA UNIVERSITY OF AGRICULTURE AND TECHNOLOGY",
+        "JKUAT": "JOMO KENYATTA UNIVERSITY OF AGRICULTURE AND TECHNOLOGY",
+        "EGERTON": "EGERTON UNIVERSITY",
+        "EGERTON UNIVERSITY": "EGERTON UNIVERSITY",
+        "STRATHMORE": "STRATHMORE UNIVERSITY",
+        "STRATHMORE UNIVERSITY": "STRATHMORE UNIVERSITY",
+        "USIU": "UNITED STATES INTERNATIONAL UNIVERSITY",
+        "USIU-AFRICA": "UNITED STATES INTERNATIONAL UNIVERSITY",
+        "KCA": "KCA UNIVERSITY",
+        "KCA UNIVERSITY": "KCA UNIVERSITY",
+        "MULTIMEDIA UNIVERSITY": "MULTIMEDIA UNIVERSITY OF KENYA",
+        "MMU": "MULTIMEDIA UNIVERSITY OF KENYA",
+        "MOUNT KENYA UNIVERSITY": "MOUNT KENYA UNIVERSITY",
+        "MKU": "MOUNT KENYA UNIVERSITY",
+        "TECHNICAL UNIVERSITY OF KENYA": "TECHNICAL UNIVERSITY OF KENYA",
+        "TUK": "TECHNICAL UNIVERSITY OF KENYA",
+        "KENYA POLYTECHNIC": "TECHNICAL UNIVERSITY OF KENYA",
+        "KABETE NATIONAL POLYTECHNIC": "KABETE NATIONAL POLYTECHNIC",
+        "KABETE POLY": "KABETE NATIONAL POLYTECHNIC",
+        "MOMBASA POLYTECHNIC": "MOMBASA POLYTECHNIC UNIVERSITY COLLEGE",
+        "MPC": "MOMBASA POLYTECHNIC UNIVERSITY COLLEGE",
+    }
+    
+    # Check for exact mapping
+    if cleaned_upper in school_mappings:
+        return school_mappings[cleaned_upper]
+    
+    # Check for partial matches for universities
+    for abbr, full_name in school_mappings.items():
+        if abbr in cleaned_upper:
             return full_name
     
     # Title case for professional appearance
@@ -312,6 +597,10 @@ class GoogleSheetsClient:
                     elif gender:
                         record["GENDER"] = "Other"
                 
+                # Normalize school name
+                if "The name of your school" in record:
+                    record["The name of your school"] = normalize_school_name(record["The name of your school"])
+                
                 records.append(record)
             
             return records
@@ -336,6 +625,7 @@ async def root():
             "metadata": "/metadata",
             "counties": "/counties",
             "levels": "/levels",
+            "schools": "/schools",
             "search": "/search"
         }
     }
@@ -360,7 +650,8 @@ async def get_metadata():
             "education": "All education level variations are standardized",
             "companies": "Company names are cleaned and standardized",
             "gender": "Gender values are normalized to Male/Female/Other",
-            "courses": "Course names are converted to title case"
+            "courses": "Course names are converted to title case",
+            "schools": "School names are normalized for consistency"
         }
     }
 
@@ -408,13 +699,18 @@ async def get_data(
 
 
 @app.get("/stats")
-async def get_stats(county: Optional[str] = Query(None), level: Optional[str] = Query(None)):
+async def get_stats(
+    county: Optional[str] = Query(None),
+    level: Optional[str] = Query(None),
+    school: Optional[str] = Query(None)
+):
     """
     Get aggregated statistics from the sheet
     
     Query Parameters:
     - **county**: Filter by county (optional)
     - **level**: Filter by level of training (optional)
+    - **school**: Filter by institution/school (optional)
     """
     try:
         client = get_sheets_client()
@@ -427,21 +723,30 @@ async def get_stats(county: Optional[str] = Query(None), level: Optional[str] = 
         if level:
             normalized_level = normalize_education_level(level)
             records = [r for r in records if r.get("Your Level of Training (e.g. Deg, Dip, Cert)", "") == normalized_level]
+        if school:
+            normalized_school = normalize_school_name(school)
+            records = [
+                r for r in records
+                if r.get("The name of your school", "") == normalized_school
+            ]
         
         if not records:
             return {
                 "total_registrations": 0,
+                "placement_rate": 0,
                 "gender_ratio": {},
                 "education_breakdown": {},
                 "top_courses": [],
                 "geographic_distribution": [],
                 "preferred_companies": [],
-                "filtered": bool(county or level)
+                "top_schools": [],
+                "filtered": bool(county or level or school),
+                "timestamp": datetime.now().isoformat()
             }
         
         # Calculate statistics
         stats = calculate_statistics(records)
-        stats["filtered"] = bool(county or level)
+        stats["filtered"] = bool(county or level or school)
         stats["timestamp"] = datetime.now().isoformat()
         
         return stats
@@ -491,6 +796,25 @@ async def get_levels():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/schools")
+async def get_schools():
+    """Get list of all unique schools"""
+    try:
+        client = get_sheets_client()
+        records = client.fetch_all_records()
+        
+        # Get all schools from the data
+        schools_in_data = set(r.get("The name of your school", "").strip() for r in records if r.get("The name of your school", "").strip())
+        schools = sorted(schools_in_data)
+        
+        return {
+            "schools": schools,
+            "total": len(schools)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def calculate_statistics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Calculate all statistics from records"""
     
@@ -507,7 +831,12 @@ def calculate_statistics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
     
     # Education level breakdown - using actual Google Sheets column name
-    education_levels = [r.get("Your Level of Training (e.g. Deg, Dip, Cert)", "").strip() for r in records if r.get("Your Level of Training (e.g. Deg, Dip, Cert)")]
+    education_levels = [
+        r.get("Your Level of Training (e.g. Deg, Dip, Cert)", "").strip()
+        for r in records
+        if r.get("Your Level of Training (e.g. Deg, Dip, Cert)")
+        and r.get("Your Level of Training (e.g. Deg, Dip, Cert)", "").strip() in EDUCATION_LEVELS.keys()
+    ]
     education_counter = Counter(education_levels)
     education_breakdown = {level: count for level, count in education_counter.most_common()}
     
@@ -560,6 +889,87 @@ def calculate_statistics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     
     placement_rate = round(len(placements) / total_registrations * 100, 2) if total_registrations else 0
     
+    # Top 10 schools
+    schools = [r.get("The name of your school", "").strip() for r in records if r.get("The name of your school", "").strip()]
+    school_counter = Counter(schools)
+    top_schools = [
+        {"name": school, "count": count}
+        for school, count in school_counter.most_common(10)
+    ]
+    
+    # Quarter breakdown - extract from application timestamp/date column
+    quarter_counter = Counter()
+    year_quarter_counter = Counter()
+
+    # Pick the best date/time field by parsing success rate in a sample of records
+    all_keys = list(records[0].keys())
+    candidate_fields = [
+        key for key in all_keys
+        if any(token in key.lower() for token in [
+            'timestamp', 'time', 'date', 'appl', 'submit', 'created'
+        ])
+    ]
+
+    # Some sheets use short headers (e.g., "F") for timestamp column
+    if 'F' in all_keys and 'F' not in candidate_fields:
+        candidate_fields.append('F')
+
+    # Fallback to all fields if no obvious candidate exists
+    if not candidate_fields:
+        candidate_fields = all_keys
+
+    sample_records = records[: min(len(records), 300)]
+    timestamp_field = None
+    best_score = 0
+
+    for field in candidate_fields:
+        valid_quarters = 0
+        for row in sample_records:
+            value = str(row.get(field, '')).strip()
+            if value and get_quarter(value) != 'Unknown':
+                valid_quarters += 1
+
+        if valid_quarters > best_score:
+            best_score = valid_quarters
+            timestamp_field = field
+
+    if timestamp_field:
+        for r in records:
+            ts = str(r.get(timestamp_field, "")).strip()
+            parsed_date = parse_application_date(ts)
+            quarter = parsed_date.get("quarter", "Unknown")
+            year = parsed_date.get("year")
+            if quarter != "Unknown":
+                quarter_counter[quarter] += 1
+                if year is not None:
+                    year_quarter_counter[(year, quarter)] += 1
+
+    quarter_order = ["Q1 (Jul-Sep)", "Q2 (Oct-Dec)", "Q3 (Jan-Mar)", "Q4 (Apr-Jun)"]
+    quarter_total = sum(quarter_counter.values())
+    quarter_breakdown = [
+        {
+            "quarter": quarter,
+            "count": quarter_counter.get(quarter, 0),
+            "percentage": round((quarter_counter.get(quarter, 0) / quarter_total) * 100, 2) if quarter_total else 0
+        }
+        for quarter in quarter_order
+    ]
+
+    years = sorted({year for year, _ in year_quarter_counter.keys()})
+    quarter_breakdown_by_year = [
+        {
+            "year": year,
+            "quarters": [
+                {
+                    "quarter": quarter,
+                    "count": year_quarter_counter.get((year, quarter), 0)
+                }
+                for quarter in quarter_order
+            ]
+        }
+        for year in years
+    ]
+    
     return {
         "total_registrations": total_registrations,
         "placement_rate": placement_rate,
@@ -567,7 +977,10 @@ def calculate_statistics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "education_breakdown": education_breakdown,
         "top_courses": top_courses,
         "geographic_distribution": geographic_distribution,
-        "preferred_companies": preferred_companies
+        "preferred_companies": preferred_companies,
+        "top_schools": top_schools,
+        "quarter_breakdown": quarter_breakdown,
+        "quarter_breakdown_by_year": quarter_breakdown_by_year
     }
 
 

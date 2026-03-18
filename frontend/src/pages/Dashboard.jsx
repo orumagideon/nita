@@ -9,6 +9,7 @@ import CompaniesChart from '../components/CompaniesChart';
 import CoursesChart from '../components/CoursesChart';
 import GeographicChart from '../components/GeographicChart';
 import { apiService } from '../services/api';
+import QuarterChart from '../components/QuarterChart';
 
 export const Dashboard = () => {
   const [stats, setStats] = useState(null);
@@ -98,27 +99,36 @@ export const Dashboard = () => {
 
               {/* Charts Grid */}
               {stats && !loading && !error ? (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
                   {/* Row 1 */}
-                  <div className="bg-gradient-to-br from-white to-blue-50 backdrop-blur-md rounded-xl shadow-lg hover:shadow-2xl p-4 transition-all duration-300 border border-blue-100/30">
+                                    {/* Quarter Chart */}
+                                    <div className="lg:col-span-2 bg-gradient-to-br from-white to-pink-50 backdrop-blur-md rounded-xl shadow-lg hover:shadow-2xl p-4 transition-all duration-300 border border-pink-100/30 overflow-hidden">
+                                      <QuarterChart
+                                        data={stats.quarter_breakdown || []}
+                                        dataByYear={stats.quarter_breakdown_by_year || []}
+                                      />
+                                    </div>
+
+                                    {/* Row 1 */}
+                  <div className="bg-gradient-to-br from-white to-blue-50 backdrop-blur-md rounded-xl shadow-lg hover:shadow-2xl p-4 transition-all duration-300 border border-blue-100/30 overflow-hidden">
                     <GenderChart data={stats.gender_ratio} />
                   </div>
-                  <div className="bg-gradient-to-br from-white to-blue-50 backdrop-blur-md rounded-xl shadow-lg hover:shadow-2xl p-4 transition-all duration-300 border border-blue-100/30">
+                  <div className="bg-gradient-to-br from-white to-blue-50 backdrop-blur-md rounded-xl shadow-lg hover:shadow-2xl p-4 transition-all duration-300 border border-blue-100/30 overflow-hidden">
                     <EducationChart data={stats.education_breakdown} />
                   </div>
 
                   {/* Row 2 */}
-                  <div className="lg:col-span-2 bg-gradient-to-br from-white to-blue-50 backdrop-blur-md rounded-xl shadow-lg hover:shadow-2xl p-4 transition-all duration-300 border border-blue-100/30">
+                  <div className="lg:col-span-2 bg-gradient-to-br from-white to-blue-50 backdrop-blur-md rounded-xl shadow-lg hover:shadow-2xl p-4 transition-all duration-300 border border-blue-100/30 overflow-hidden">
                     <CoursesChart data={stats.top_courses} />
                   </div>
 
                   {/* Row 3 */}
-                  <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-md p-4 hover:shadow-lg transition-shadow">
+                  <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-md p-4 hover:shadow-lg transition-shadow overflow-hidden">
                     <GeographicChart data={stats.geographic_distribution} />
                   </div>
 
                   {/* Row 4 */}
-                  <div className="lg:col-span-2 bg-gradient-to-br from-white to-blue-50 backdrop-blur-md rounded-xl shadow-lg hover:shadow-2xl p-4 transition-all duration-300 border border-blue-100/30">
+                  <div className="lg:col-span-2 bg-gradient-to-br from-white to-blue-50 backdrop-blur-md rounded-xl shadow-lg hover:shadow-2xl p-4 transition-all duration-300 border border-blue-100/30 overflow-hidden">
                     <CompaniesChart data={stats.preferred_companies} />
                   </div>
                 </div>

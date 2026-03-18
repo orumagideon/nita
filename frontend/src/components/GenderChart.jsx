@@ -22,15 +22,26 @@ export const GenderChart = ({ data }) => {
   }, [data]);
 
   const layout = {
-    title: 'Gender Distribution',
+    title: '',
     height: 400,
-    margin: { l: 0, r: 0, t: 40, b: 0 },
+    margin: { l: 0, r: 0, t: 10, b: 0 },
     font: { family: 'system-ui, sans-serif' },
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    paper_bgcolor: 'rgba(0,0,0,0)',
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-4">
-      <Plot data={chartData} layout={layout} config={{ responsive: true }} />
+    <div className="w-full overflow-hidden">
+      <div className="mb-2 px-2">
+        <h3 className="text-lg font-semibold text-gray-800">Gender Distribution</h3>
+      </div>
+      <Plot
+        data={chartData}
+        layout={layout}
+        config={{ responsive: true, displayModeBar: false }}
+        style={{ width: '100%', height: '100%' }}
+        useResizeHandler={true}
+      />
     </div>
   );
 };

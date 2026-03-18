@@ -16,24 +16,45 @@ export const CompaniesChart = ({ data }) => {
         orientation: 'h',
         marker: {
           color: '#F59E0B',
+          line: {
+            color: '#D97706',
+            width: 1
+          }
         },
-        hovertemplate: '<b>%{y}</b><br>Count: %{x}<extra></extra>',
+        hovertemplate: '<b>%{y}</b><br>Preferences: %{x}<extra></extra>',
       },
     ];
   }, [data]);
 
   const layout = {
-    title: 'Top 10 Preferred Companies',
-    xaxis: { title: 'Count' },
-    yaxis: { title: 'Company' },
+    title: '',
+    xaxis: { 
+      title: 'Number of Preferences',
+      gridcolor: '#E5E7EB',
+    },
+    yaxis: { 
+      title: 'Company Name',
+      automargin: true,
+    },
     height: 450,
-    margin: { l: 250, r: 20, t: 40, b: 40 },
+    margin: { l: 180, r: 10, t: 10, b: 40 },
     font: { family: 'system-ui, sans-serif' },
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    paper_bgcolor: 'rgba(0,0,0,0)',
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-4">
-      <Plot data={chartData} layout={layout} config={{ responsive: true }} />
+    <div className="w-full overflow-hidden">
+      <div className="mb-2 px-2">
+        <h3 className="text-lg font-semibold text-gray-800">Top 10 Preferred Companies</h3>
+      </div>
+      <Plot
+        data={chartData}
+        layout={layout}
+        config={{ responsive: true, displayModeBar: false }}
+        style={{ width: '100%', height: '100%' }}
+        useResizeHandler={true}
+      />
     </div>
   );
 };
