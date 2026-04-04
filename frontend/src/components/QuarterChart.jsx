@@ -10,6 +10,13 @@ const PROFESSIONAL_COLORS = [
   '#374151',
 ];
 
+const QUARTER_COLORS = {
+  'Q1 (Jul-Sep)': '#0F766E',
+  'Q2 (Oct-Dec)': '#1D4ED8',
+  'Q3 (Jan-Mar)': '#B45309',
+  'Q4 (Apr-Jun)': '#7C3AED',
+};
+
 const QUARTER_ORDER = ['Q1 (Jul-Sep)', 'Q2 (Oct-Dec)', 'Q3 (Jan-Mar)', 'Q4 (Apr-Jun)'];
 
 export const QuarterChart = ({ data, dataByYear = [] }) => {
@@ -73,13 +80,13 @@ export const QuarterChart = ({ data, dataByYear = [] }) => {
           type: 'bar',
           name: String(selectedYear || currentYearNumber),
           marker: {
-            color: PROFESSIONAL_COLORS[0],
+            color: QUARTER_ORDER.map((quarter) => QUARTER_COLORS[quarter] || PROFESSIONAL_COLORS[0]),
             line: {
               color: '#334155',
               width: 0.8,
             },
           },
-          hovertemplate: '<b>Year %{fullData.name}</b><br>%{x}<br>Students: %{y}<extra></extra>',
+          hovertemplate: '<b>%{x}</b><br>Year: %{fullData.name}<br>Students: %{y}<extra></extra>',
         },
       ];
     }
@@ -96,7 +103,7 @@ export const QuarterChart = ({ data, dataByYear = [] }) => {
         type: 'bar',
         name: 'All Years',
         marker: {
-          color: '#1D4ED8',
+          color: QUARTER_ORDER.map((quarter) => QUARTER_COLORS[quarter] || '#1D4ED8'),
           line: {
             color: '#334155',
             width: 0.8,
@@ -126,6 +133,7 @@ export const QuarterChart = ({ data, dataByYear = [] }) => {
       xanchor: 'left',
       y: 1.12,
       yanchor: 'bottom',
+      bgcolor: 'rgba(255,255,255,0.75)',
     },
     height: 350,
     margin: { l: 60, r: 20, t: 30, b: 60 },

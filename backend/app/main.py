@@ -10,7 +10,7 @@ import re
 import unicodedata
 from difflib import get_close_matches
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import Counter
 from functools import lru_cache
 
@@ -97,54 +97,11 @@ def get_quarter(date_str: str) -> str:
         return "Unknown"
     
     try:
-        # Normalize and handle noisy values like "F", "N/A", etc.
-        raw_value = date_str.strip()
-        cleaned_value = raw_value.replace("  ", " ").strip()
-        if not cleaned_value or cleaned_value.upper() in {"F", "N/A", "NA", "NULL", "NONE", "-"}:
+        parsed_date = parse_datetime_value(date_str)
+        if parsed_date is None:
             return "Unknown"
 
-        month = None
-
-        # Parse common datetime/date formats from Google Forms / Sheets
-        supported_formats = [
-            '%m/%d/%Y %H:%M:%S',
-            '%m/%d/%Y %H:%M',
-            '%m/%d/%Y %I:%M:%S %p',
-            '%m/%d/%Y',
-            '%Y-%m-%d %H:%M:%S',
-            '%Y-%m-%d',
-            '%d/%m/%Y %H:%M:%S',
-            '%d/%m/%Y',
-            '%m-%d-%Y %H:%M:%S',
-            '%m-%d-%Y',
-            '%Y/%m/%d %H:%M:%S',
-            '%Y/%m/%d',
-        ]
-
-        for fmt in supported_formats:
-            try:
-                month = datetime.strptime(cleaned_value, fmt).month
-                break
-            except ValueError:
-                continue
-
-        # Fallback: parse numeric month from first date-like token
-        if month is None:
-            first_token = cleaned_value.split()[0]
-            if '/' in first_token:
-                parts = first_token.split('/')
-                if len(parts) >= 3 and parts[0].isdigit() and 1 <= int(parts[0]) <= 12:
-                    month = int(parts[0])
-            elif '-' in first_token:
-                parts = first_token.split('-')
-                if len(parts) >= 3:
-                    if parts[0].isdigit() and 1 <= int(parts[0]) <= 12:
-                        month = int(parts[0])
-                    elif parts[1].isdigit() and 1 <= int(parts[1]) <= 12:
-                        month = int(parts[1])
-
-        if month is None:
-            return "Unknown"
+        month = parsed_date.month
         
         # Categorize by quarter
         if month in [7, 8, 9]:
@@ -161,6 +118,82 @@ def get_quarter(date_str: str) -> str:
         return "Unknown"
 
 
+def parse_datetime_value(date_input: str) -> Optional[datetime]:
+    """
+    Parse timestamp/date values from Google Sheets rows.
+    Supports datetime strings, ISO formats, and Excel serial dates.
+    """
+    if not date_input or not isinstance(date_input, str):
+        return None
+
+    raw_value = date_input.strip()
+    cleaned_value = re.sub(r"\s+", " ", raw_value).strip()
+    if not cleaned_value or cleaned_value.upper() in {"F", "N/A", "NA", "NULL", "NONE", "-"}:
+        return None
+
+    # Excel/Sheets serial date support (e.g. "45567.52")
+    if re.fullmatch(r"\d+(\.\d+)?", cleaned_value):
+        try:
+            serial_value = float(cleaned_value)
+            if 10000 <= serial_value <= 90000:
+                return datetime(1899, 12, 30) + timedelta(days=serial_value)
+        except ValueError:
+            pass
+
+    # Try ISO parsing first
+    iso_candidate = cleaned_value.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(iso_candidate)
+    except ValueError:
+        pass
+
+    # Parse common datetime/date formats from Google Forms / Sheets
+    supported_formats = [
+        '%m/%d/%Y %H:%M:%S',
+        '%m/%d/%Y %H:%M',
+        '%m/%d/%Y %I:%M:%S %p',
+        '%m/%d/%Y',
+        '%d/%m/%Y %H:%M:%S',
+        '%d/%m/%Y %H:%M',
+        '%d/%m/%Y',
+        '%Y-%m-%d %H:%M:%S',
+        '%Y-%m-%d %H:%M',
+        '%Y-%m-%d',
+        '%m-%d-%Y %H:%M:%S',
+        '%m-%d-%Y %H:%M',
+        '%m-%d-%Y',
+        '%d-%m-%Y %H:%M:%S',
+        '%d-%m-%Y %H:%M',
+        '%d-%m-%Y',
+        '%Y/%m/%d %H:%M:%S',
+        '%Y/%m/%d %H:%M',
+        '%Y/%m/%d',
+        '%d.%m.%Y %H:%M:%S',
+        '%d.%m.%Y',
+        '%b %d, %Y',
+        '%B %d, %Y',
+    ]
+
+    for fmt in supported_formats:
+        try:
+            return datetime.strptime(cleaned_value, fmt)
+        except ValueError:
+            continue
+
+    # Extract first date-looking token from noisy strings
+    token_match = re.search(r"(\d{1,4}[/-]\d{1,2}[/-]\d{1,4})", cleaned_value)
+    if token_match:
+        token = token_match.group(1)
+        token_formats = ['%Y-%m-%d', '%d-%m-%Y', '%m-%d-%Y', '%Y/%m/%d', '%d/%m/%Y', '%m/%d/%Y']
+        for fmt in token_formats:
+            try:
+                return datetime.strptime(token, fmt)
+            except ValueError:
+                continue
+
+    return None
+
+
 def parse_application_date(date_str: str) -> Dict[str, Any]:
     """
     Parse application date and return both year and quarter.
@@ -170,65 +203,13 @@ def parse_application_date(date_str: str) -> Dict[str, Any]:
         return {"year": None, "quarter": "Unknown"}
 
     try:
-        raw_value = date_str.strip()
-        cleaned_value = raw_value.replace("  ", " ").strip()
-        if not cleaned_value or cleaned_value.upper() in {"F", "N/A", "NA", "NULL", "NONE", "-"}:
-            return {"year": None, "quarter": "Unknown"}
-
-        parsed_date = None
-        supported_formats = [
-            '%m/%d/%Y %H:%M:%S',
-            '%m/%d/%Y %H:%M',
-            '%m/%d/%Y %I:%M:%S %p',
-            '%m/%d/%Y',
-            '%Y-%m-%d %H:%M:%S',
-            '%Y-%m-%d',
-            '%d/%m/%Y %H:%M:%S',
-            '%d/%m/%Y',
-            '%m-%d-%Y %H:%M:%S',
-            '%m-%d-%Y',
-            '%Y/%m/%d %H:%M:%S',
-            '%Y/%m/%d',
-        ]
-
-        for fmt in supported_formats:
-            try:
-                parsed_date = datetime.strptime(cleaned_value, fmt)
-                break
-            except ValueError:
-                continue
-
+        parsed_date = parse_datetime_value(date_str)
         if parsed_date is None:
-            first_token = cleaned_value.split()[0]
-            if '/' in first_token:
-                parts = first_token.split('/')
-                if len(parts) >= 3 and parts[0].isdigit() and parts[2].isdigit():
-                    month = int(parts[0])
-                    year = int(parts[2])
-                    if 1 <= month <= 12 and 1900 <= year <= 2100:
-                        quarter = get_quarter(first_token)
-                        return {"year": year, "quarter": quarter}
-            elif '-' in first_token:
-                parts = first_token.split('-')
-                if len(parts) >= 3:
-                    if len(parts[0]) == 4 and parts[0].isdigit() and parts[1].isdigit():
-                        year = int(parts[0])
-                        month = int(parts[1])
-                    elif parts[2].isdigit() and parts[0].isdigit():
-                        year = int(parts[2])
-                        month = int(parts[0])
-                    else:
-                        return {"year": None, "quarter": "Unknown"}
-
-                    if 1 <= month <= 12 and 1900 <= year <= 2100:
-                        quarter = get_quarter(first_token)
-                        return {"year": year, "quarter": quarter}
-
             return {"year": None, "quarter": "Unknown"}
 
         return {
             "year": parsed_date.year,
-            "quarter": get_quarter(cleaned_value),
+            "quarter": get_quarter(parsed_date.strftime('%Y-%m-%d')),
         }
     except Exception:
         return {"year": None, "quarter": "Unknown"}
@@ -901,7 +882,7 @@ def calculate_statistics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     quarter_counter = Counter()
     year_quarter_counter = Counter()
 
-    # Pick the best date/time field by parsing success rate in a sample of records
+    # Pick likely date/time fields and parse per row from the best candidates
     all_keys = list(records[0].keys())
     candidate_fields = [
         key for key in all_keys
@@ -919,30 +900,44 @@ def calculate_statistics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         candidate_fields = all_keys
 
     sample_records = records[: min(len(records), 300)]
-    timestamp_field = None
-    best_score = 0
+    field_scores = {}
 
     for field in candidate_fields:
         valid_quarters = 0
         for row in sample_records:
             value = str(row.get(field, '')).strip()
-            if value and get_quarter(value) != 'Unknown':
+            parsed = parse_application_date(value)
+            if parsed.get('quarter') != 'Unknown' and parsed.get('year') is not None:
                 valid_quarters += 1
+        field_scores[field] = valid_quarters
 
-        if valid_quarters > best_score:
-            best_score = valid_quarters
-            timestamp_field = field
+    ordered_candidate_fields = sorted(
+        candidate_fields,
+        key=lambda field: field_scores.get(field, 0),
+        reverse=True,
+    )
 
-    if timestamp_field:
-        for r in records:
-            ts = str(r.get(timestamp_field, "")).strip()
-            parsed_date = parse_application_date(ts)
-            quarter = parsed_date.get("quarter", "Unknown")
-            year = parsed_date.get("year")
-            if quarter != "Unknown":
-                quarter_counter[quarter] += 1
-                if year is not None:
-                    year_quarter_counter[(year, quarter)] += 1
+    # If all candidate fields score 0, try all fields as a final fallback
+    if not ordered_candidate_fields or field_scores.get(ordered_candidate_fields[0], 0) == 0:
+        ordered_candidate_fields = all_keys
+
+    for row in records:
+        parsed_date = {"year": None, "quarter": "Unknown"}
+
+        for field in ordered_candidate_fields:
+            value = str(row.get(field, '')).strip()
+            if not value:
+                continue
+
+            parsed_date = parse_application_date(value)
+            if parsed_date.get("quarter") != "Unknown" and parsed_date.get("year") is not None:
+                break
+
+        quarter = parsed_date.get("quarter", "Unknown")
+        year = parsed_date.get("year")
+        if quarter != "Unknown" and year is not None:
+            quarter_counter[quarter] += 1
+            year_quarter_counter[(year, quarter)] += 1
 
     quarter_order = ["Q1 (Jul-Sep)", "Q2 (Oct-Dec)", "Q3 (Jan-Mar)", "Q4 (Apr-Jun)"]
     quarter_total = sum(quarter_counter.values())
