@@ -21,7 +21,7 @@ export const Footer = () => {
 
   return (
     <footer
-      className={`fixed bottom-0 left-0 w-full bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 text-white py-5 shadow-2xl transition-all duration-300 ease-out ${
+      className={`fixed bottom-0 left-0 z-50 w-full bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 text-white py-5 shadow-2xl transition-all duration-300 ease-out ${
         isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
       } ${isNearBottom ? 'pointer-events-auto' : 'pointer-events-none'}`}
       onMouseEnter={() => setIsHovered(true)}
