@@ -4,15 +4,20 @@ import nitaLogo from '../assets/images/NITA-Logo.png';
 
 export const Sidebar = ({ counties, levels, onCountyChange, onLevelChange, selectedCounty, selectedLevel }) => {
   const [isOpen, setIsOpen] = useState(true);
-  const [countrySearch, setCountrySearch] = useState('');
+  const [countySearch, setCountySearch] = useState('');
+  const [showAllCounties, setShowAllCounties] = useState(false);
   const [expandedSections, setExpandedSections] = useState({
     county: true,
     level: true,
   });
 
   const filteredCounties = counties.filter(county =>
-    county.toLowerCase().includes(countrySearch.toLowerCase())
+    county.toLowerCase().includes(countySearch.toLowerCase())
   );
+
+  const visibleCounties = showAllCounties || countySearch.trim()
+    ? filteredCounties
+    : filteredCounties.slice(0, 8);
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({
@@ -24,6 +29,8 @@ export const Sidebar = ({ counties, levels, onCountyChange, onLevelChange, selec
   const handleClearFilters = () => {
     onCountyChange(null);
     onLevelChange(null);
+    setCountySearch('');
+    setShowAllCounties(false);
   };
 
   return (
@@ -86,10 +93,25 @@ export const Sidebar = ({ counties, levels, onCountyChange, onLevelChange, selec
                   <input
                     type="text"
                     placeholder="Search counties..."
-                    value={countrySearch}
-                    onChange={(e) => setCountrySearch(e.target.value)}
+                    value={countySearch}
+                    onChange={(e) => setCountySearch(e.target.value)}
                     className="w-full pl-10 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
                   />
+                </div>
+
+                <div className="flex items-center justify-between gap-3 text-xs text-gray-500 px-1">
+                  <span>
+                    {countySearch.trim()
+                      ? `${filteredCounties.length} match${filteredCounties.length === 1 ? '' : 'es'}`
+                      : `${Math.min(visibleCounties.length, filteredCounties.length)} of ${filteredCounties.length} shown`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllCounties(prev => !prev)}
+                    className="font-medium text-blue-700 hover:text-blue-800"
+                  >
+                    {showAllCounties || countySearch.trim() ? 'Show fewer' : 'View all counties'}
+                  </button>
                 </div>
 
                 <button
@@ -102,19 +124,21 @@ export const Sidebar = ({ counties, levels, onCountyChange, onLevelChange, selec
                 >
                   All Counties
                 </button>
-                {filteredCounties && filteredCounties.map(county => (
-                  <button
-                    key={county}
-                    onClick={() => onCountyChange(county)}
-                    className={`block w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                      selectedCounty === county
-                        ? 'bg-blue-100 text-blue-700 font-medium'
-                        : 'text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    {county}
-                  </button>
-                ))}
+                <div className="max-h-72 overflow-y-auto pr-1 space-y-1">
+                  {visibleCounties && visibleCounties.map(county => (
+                    <button
+                      key={county}
+                      onClick={() => onCountyChange(county)}
+                      className={`block w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
+                        selectedCounty === county
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {county}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
