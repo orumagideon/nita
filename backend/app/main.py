@@ -8,11 +8,13 @@ import json
 import base64
 import re
 import unicodedata
+import time
+import asyncio
 from difflib import get_close_matches
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from collections import Counter
-from functools import lru_cache
+from threading import Lock
 
 import gspread
 from dotenv import load_dotenv
@@ -81,6 +83,69 @@ EDUCATION_LEVELS = {
     "PHD": ["phd", "doctorate", "doctoral", "level 9", "level9", "9"]
 }
 
+# Cache normalized records to avoid reloading/reparsing Google Sheets on each request.
+RECORDS_CACHE_TTL_SECONDS = int(os.getenv("RECORDS_CACHE_TTL_SECONDS", "300"))
+# If refresh fails, serve stale cache for this duration to keep dashboard responsive.
+RECORDS_STALE_MAX_SECONDS = int(os.getenv("RECORDS_STALE_MAX_SECONDS", "3600"))
+STATS_CACHE_TTL_SECONDS = int(os.getenv("STATS_CACHE_TTL_SECONDS", "120"))
+
+DATE_FIELD_HINTS = [
+    "timestamp",
+    "application date",
+    "date of application",
+    "submission date",
+    "submitted",
+    "created",
+    "date",
+    "time",
+]
+
+
+def get_date_candidate_fields(headers: List[str]) -> List[str]:
+    """Pick likely date fields in stable priority order."""
+    if not headers:
+        return []
+
+    exact_priority = [
+        "Timestamp",
+        "timestamp",
+        "Application Date",
+        "application date",
+        "Submission Date",
+        "Date",
+        "F",  # Some sheets store timestamp in a short column name.
+    ]
+
+    selected: List[str] = []
+
+    for field in exact_priority:
+        if field in headers and field not in selected:
+            selected.append(field)
+
+    for header in headers:
+        header_lower = header.lower()
+        if any(hint in header_lower for hint in DATE_FIELD_HINTS) and header not in selected:
+            selected.append(header)
+
+    if not selected:
+        selected = list(headers)
+
+    return selected
+
+
+def parse_row_application_date(record: Dict[str, Any], candidate_fields: List[str]) -> Dict[str, Any]:
+    """Extract the first valid year/quarter value from likely date fields in a row."""
+    for field in candidate_fields:
+        value = str(record.get(field, "")).strip()
+        if not value:
+            continue
+
+        parsed = parse_application_date(value)
+        if parsed.get("year") is not None and parsed.get("quarter") != "Unknown":
+            return parsed
+
+    return {"year": None, "quarter": "Unknown"}
+
 
 def get_quarter(date_str: str) -> str:
     """
@@ -131,6 +196,9 @@ def parse_datetime_value(date_input: str) -> Optional[datetime]:
     if not cleaned_value or cleaned_value.upper() in {"F", "N/A", "NA", "NULL", "NONE", "-"}:
         return None
 
+    # Remove trailing timezone labels like "EAT" often appended by Sheets exports.
+    cleaned_value = re.sub(r"\s+[A-Za-z]{2,5}$", "", cleaned_value).strip()
+
     # Excel/Sheets serial date support (e.g. "45567.52")
     if re.fullmatch(r"\d+(\.\d+)?", cleaned_value):
         try:
@@ -152,23 +220,35 @@ def parse_datetime_value(date_input: str) -> Optional[datetime]:
         '%m/%d/%Y %H:%M:%S',
         '%m/%d/%Y %H:%M',
         '%m/%d/%Y %I:%M:%S %p',
+        '%m/%d/%Y %I:%M %p',
         '%m/%d/%Y',
         '%d/%m/%Y %H:%M:%S',
         '%d/%m/%Y %H:%M',
+        '%d/%m/%Y %I:%M:%S %p',
+        '%d/%m/%Y %I:%M %p',
         '%d/%m/%Y',
         '%Y-%m-%d %H:%M:%S',
         '%Y-%m-%d %H:%M',
+        '%Y-%m-%d %I:%M:%S %p',
+        '%Y-%m-%d %I:%M %p',
         '%Y-%m-%d',
         '%m-%d-%Y %H:%M:%S',
         '%m-%d-%Y %H:%M',
+        '%m-%d-%Y %I:%M:%S %p',
+        '%m-%d-%Y %I:%M %p',
         '%m-%d-%Y',
         '%d-%m-%Y %H:%M:%S',
         '%d-%m-%Y %H:%M',
+        '%d-%m-%Y %I:%M:%S %p',
+        '%d-%m-%Y %I:%M %p',
         '%d-%m-%Y',
         '%Y/%m/%d %H:%M:%S',
         '%Y/%m/%d %H:%M',
+        '%Y/%m/%d %I:%M:%S %p',
+        '%Y/%m/%d %I:%M %p',
         '%Y/%m/%d',
         '%d.%m.%Y %H:%M:%S',
+        '%d.%m.%Y %H:%M',
         '%d.%m.%Y',
         '%b %d, %Y',
         '%B %d, %Y',
@@ -528,65 +608,128 @@ class GoogleSheetsClient:
             self.client = gspread.authorize(creds)
             self.spreadsheet = self.client.open_by_key(SPREADSHEET_ID)
             self.worksheet = self.spreadsheet.sheet1
+            self._records_cache: List[Dict[str, Any]] = []
+            self._records_cache_at = 0.0
+            self._records_cache_lock = Lock()
+            self._global_stats_cache: Optional[Dict[str, Any]] = None
+            self._global_stats_cache_at = 0.0
         except Exception as e:
             raise RuntimeError(f"Failed to initialize Google Sheets client: {str(e)}")
     
-    def fetch_all_records(self) -> List[Dict[str, Any]]:
+    def fetch_all_records(self, force_refresh: bool = False, allow_stale: bool = True) -> List[Dict[str, Any]]:
         """Fetch all records from the worksheet"""
-        try:
-            # Get all values including headers
-            all_values = self.worksheet.get_all_values()
-            
-            if not all_values or len(all_values) < 2:
-                return []
-            
-            # Get headers and handle duplicates by adding suffix
-            headers = all_values[0]
-            header_counts = {}
-            unique_headers = []
-            
-            for header in headers:
-                if header in header_counts:
-                    header_counts[header] += 1
-                    unique_headers.append(f"{header}_{header_counts[header]}")
-                else:
-                    header_counts[header] = 0
-                    unique_headers.append(header)
-            
-            # Convert rows to dictionaries and apply normalization
-            records = []
-            for row in all_values[1:]:
-                # Pad row if it's shorter than headers
-                padded_row = row + [''] * (len(unique_headers) - len(row))
-                record = dict(zip(unique_headers, padded_row))
-                
-                # Apply data normalization
-                if "YOUR COUNTY" in record:
-                    record["YOUR COUNTY"] = normalize_county(record["YOUR COUNTY"])
-                if "REGION/COUNTY" in record:
-                    record["REGION/COUNTY"] = normalize_county(record["REGION/COUNTY"])
-                if "Your Level of Training (e.g. Deg, Dip, Cert)" in record:
-                    record["Your Level of Training (e.g. Deg, Dip, Cert)"] = normalize_education_level(record["Your Level of Training (e.g. Deg, Dip, Cert)"])
-                
-                # Normalize gender to standard values
-                if "GENDER" in record and record["GENDER"]:
-                    gender = record["GENDER"].strip().lower()
-                    if gender in ["m", "male", "man", "boy"]:
-                        record["GENDER"] = "Male"
-                    elif gender in ["f", "female", "woman", "girl", "lady"]:
-                        record["GENDER"] = "Female"
-                    elif gender:
-                        record["GENDER"] = "Other"
-                
-                # Normalize school name
-                if "The name of your school" in record:
-                    record["The name of your school"] = normalize_school_name(record["The name of your school"])
-                
-                records.append(record)
-            
-            return records
-        except Exception as e:
-            raise RuntimeError(f"Failed to fetch records from Google Sheets: {str(e)}")
+        now = time.time()
+        cache_age = now - self._records_cache_at
+        if (
+            not force_refresh
+            and self._records_cache
+            and cache_age < RECORDS_CACHE_TTL_SECONDS
+        ):
+            return self._records_cache
+
+        with self._records_cache_lock:
+            now = time.time()
+            cache_age = now - self._records_cache_at
+            if (
+                not force_refresh
+                and self._records_cache
+                and cache_age < RECORDS_CACHE_TTL_SECONDS
+            ):
+                return self._records_cache
+
+            try:
+                # Get all values including headers
+                all_values = self.worksheet.get_all_values()
+
+                if not all_values or len(all_values) < 2:
+                    self._records_cache = []
+                    self._records_cache_at = now
+                    return []
+
+                # Get headers and handle duplicates by adding suffix
+                headers = all_values[0]
+                header_counts = {}
+                unique_headers = []
+
+                for header in headers:
+                    if header in header_counts:
+                        header_counts[header] += 1
+                        unique_headers.append(f"{header}_{header_counts[header]}")
+                    else:
+                        header_counts[header] = 0
+                        unique_headers.append(header)
+
+                date_candidate_fields = get_date_candidate_fields(unique_headers)
+
+                # Convert rows to dictionaries and apply normalization
+                records = []
+                for row in all_values[1:]:
+                    # Pad row if it's shorter than headers
+                    padded_row = row + [''] * (len(unique_headers) - len(row))
+                    record = dict(zip(unique_headers, padded_row))
+
+                    # Apply data normalization
+                    if "YOUR COUNTY" in record:
+                        record["YOUR COUNTY"] = normalize_county(record["YOUR COUNTY"])
+                    if "REGION/COUNTY" in record:
+                        record["REGION/COUNTY"] = normalize_county(record["REGION/COUNTY"])
+                    if "Your Level of Training (e.g. Deg, Dip, Cert)" in record:
+                        record["Your Level of Training (e.g. Deg, Dip, Cert)"] = normalize_education_level(record["Your Level of Training (e.g. Deg, Dip, Cert)"])
+
+                    # Normalize gender to standard values
+                    if "GENDER" in record and record["GENDER"]:
+                        gender = record["GENDER"].strip().lower()
+                        if gender in ["m", "male", "man", "boy"]:
+                            record["GENDER"] = "Male"
+                        elif gender in ["f", "female", "woman", "girl", "lady"]:
+                            record["GENDER"] = "Female"
+                        elif gender:
+                            record["GENDER"] = "Other"
+
+                    # Normalize school name
+                    if "The name of your school" in record:
+                        record["The name of your school"] = normalize_school_name(record["The name of your school"])
+
+                    # Precompute application year/quarter once to keep /stats fast.
+                    parsed_date = parse_row_application_date(record, date_candidate_fields)
+                    record["_application_year"] = parsed_date.get("year")
+                    record["_application_quarter"] = parsed_date.get("quarter", "Unknown")
+
+                    records.append(record)
+
+                self._records_cache = records
+                self._records_cache_at = now
+                self._global_stats_cache = None
+                self._global_stats_cache_at = 0.0
+                return records
+            except Exception as e:
+                stale_age = time.time() - self._records_cache_at
+                if allow_stale and self._records_cache and stale_age < RECORDS_STALE_MAX_SECONDS:
+                    return self._records_cache
+                raise RuntimeError(f"Failed to fetch records from Google Sheets: {str(e)}")
+
+    def get_cached_global_stats(self) -> Optional[Dict[str, Any]]:
+        """Return cached unfiltered stats if still valid."""
+        if not self._global_stats_cache:
+            return None
+        cache_age = time.time() - self._global_stats_cache_at
+        if cache_age >= STATS_CACHE_TTL_SECONDS:
+            return None
+        return self._global_stats_cache
+
+    def set_cached_global_stats(self, stats: Dict[str, Any]) -> None:
+        """Store unfiltered stats cache."""
+        self._global_stats_cache = stats
+        self._global_stats_cache_at = time.time()
+
+    def cache_snapshot(self) -> Dict[str, Any]:
+        """Expose cache state for observability endpoints."""
+        cache_age = time.time() - self._records_cache_at if self._records_cache_at else None
+        return {
+            "cached": bool(self._records_cache),
+            "cache_age_seconds": round(cache_age, 2) if cache_age is not None else None,
+            "record_count": len(self._records_cache),
+        }
 
 
 def get_sheets_client() -> GoogleSheetsClient:
@@ -638,14 +781,32 @@ async def get_metadata():
 
 
 @app.get("/health")
-async def health_check():
-    """Health check endpoint"""
+async def health_check(deep: bool = Query(False)):
+    """Health check endpoint. Use deep=true to verify Google Sheets fetch path."""
     try:
         client = get_sheets_client()
-        client.fetch_all_records()
-        return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+        if deep:
+            client.fetch_all_records(force_refresh=False, allow_stale=False)
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "deep_check": deep,
+            "cache": client.cache_snapshot(),
+        }
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
+
+
+@app.on_event("startup")
+async def warm_records_cache_on_startup():
+    """Warm records cache in the background so first dashboard render is faster."""
+    async def _warm():
+        try:
+            await asyncio.to_thread(get_sheets_client().fetch_all_records, False, True)
+        except Exception as exc:
+            print(f"Warning: cache warmup failed: {exc}")
+
+    asyncio.create_task(_warm())
 
 
 @app.get("/data")
@@ -696,6 +857,15 @@ async def get_stats(
     try:
         client = get_sheets_client()
         records = client.fetch_all_records()
+        has_filters = bool(county or level or school)
+
+        if not has_filters:
+            cached_stats = client.get_cached_global_stats()
+            if cached_stats:
+                response = dict(cached_stats)
+                response["filtered"] = False
+                response["timestamp"] = datetime.now().isoformat()
+                return response
         
         # Apply filters with normalized values
         if county:
@@ -727,7 +897,10 @@ async def get_stats(
         
         # Calculate statistics
         stats = calculate_statistics(records)
-        stats["filtered"] = bool(county or level or school)
+        if not has_filters:
+            client.set_cached_global_stats(dict(stats))
+
+        stats["filtered"] = has_filters
         stats["timestamp"] = datetime.now().isoformat()
         
         return stats
@@ -878,63 +1051,13 @@ def calculate_statistics(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         for school, count in school_counter.most_common(10)
     ]
     
-    # Quarter breakdown - extract from application timestamp/date column
+    # Quarter breakdown - use precomputed year/quarter when available.
     quarter_counter = Counter()
     year_quarter_counter = Counter()
-
-    # Pick likely date/time fields and parse per row from the best candidates
-    all_keys = list(records[0].keys())
-    candidate_fields = [
-        key for key in all_keys
-        if any(token in key.lower() for token in [
-            'timestamp', 'time', 'date', 'appl', 'submit', 'created'
-        ])
-    ]
-
-    # Some sheets use short headers (e.g., "F") for timestamp column
-    if 'F' in all_keys and 'F' not in candidate_fields:
-        candidate_fields.append('F')
-
-    # Fallback to all fields if no obvious candidate exists
-    if not candidate_fields:
-        candidate_fields = all_keys
-
-    sample_records = records[: min(len(records), 300)]
-    field_scores = {}
-
-    for field in candidate_fields:
-        valid_quarters = 0
-        for row in sample_records:
-            value = str(row.get(field, '')).strip()
-            parsed = parse_application_date(value)
-            if parsed.get('quarter') != 'Unknown' and parsed.get('year') is not None:
-                valid_quarters += 1
-        field_scores[field] = valid_quarters
-
-    ordered_candidate_fields = sorted(
-        candidate_fields,
-        key=lambda field: field_scores.get(field, 0),
-        reverse=True,
-    )
-
-    # If all candidate fields score 0, try all fields as a final fallback
-    if not ordered_candidate_fields or field_scores.get(ordered_candidate_fields[0], 0) == 0:
-        ordered_candidate_fields = all_keys
-
     for row in records:
-        parsed_date = {"year": None, "quarter": "Unknown"}
+        quarter = row.get("_application_quarter", "Unknown")
+        year = row.get("_application_year")
 
-        for field in ordered_candidate_fields:
-            value = str(row.get(field, '')).strip()
-            if not value:
-                continue
-
-            parsed_date = parse_application_date(value)
-            if parsed_date.get("quarter") != "Unknown" and parsed_date.get("year") is not None:
-                break
-
-        quarter = parsed_date.get("quarter", "Unknown")
-        year = parsed_date.get("year")
         if quarter != "Unknown" and year is not None:
             quarter_counter[quarter] += 1
             year_quarter_counter[(year, quarter)] += 1

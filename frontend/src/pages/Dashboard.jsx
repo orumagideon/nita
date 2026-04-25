@@ -48,7 +48,12 @@ export const Dashboard = () => {
       setStats(response.data);
       setLastUpdated(new Date().toISOString());
     } catch (err) {
-      setError(err.message);
+      const backendMessage = err?.response?.data?.detail;
+      const rawMessage = backendMessage || err?.message || 'Failed to load dashboard data.';
+      const friendlyMessage = String(rawMessage).toLowerCase().includes('timeout')
+        ? 'The server is taking longer than expected. Please retry in a few seconds.'
+        : rawMessage;
+      setError(friendlyMessage);
       console.error('Failed to fetch statistics:', err);
     } finally {
       setLoading(false);

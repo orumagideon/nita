@@ -1,11 +1,48 @@
 import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_TIMEOUT_MS = Number(process.env.REACT_APP_API_TIMEOUT_MS || 30000);
+const API_RETRIES = Number(process.env.REACT_APP_API_RETRIES || 2);
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: API_TIMEOUT_MS,
 });
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const shouldRetryRequest = (error, retryCount) => {
+  if (retryCount >= API_RETRIES) {
+    return false;
+  }
+
+  const status = error?.response?.status;
+  const isTimeout = error?.code === 'ECONNABORTED' || String(error?.message || '').toLowerCase().includes('timeout');
+  const isTransient = !status || status >= 500;
+
+  return isTimeout || isTransient;
+};
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const config = error?.config;
+    if (!config) {
+      return Promise.reject(error);
+    }
+
+    config.__retryCount = config.__retryCount || 0;
+    if (!shouldRetryRequest(error, config.__retryCount)) {
+      return Promise.reject(error);
+    }
+
+    config.__retryCount += 1;
+    const retryDelay = 500 * (2 ** (config.__retryCount - 1));
+    await sleep(retryDelay);
+
+    return api(config);
+  }
+);
 
 export const apiService = {
   // Health check
